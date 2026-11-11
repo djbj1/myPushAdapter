@@ -1,0 +1,9 @@
+{
+  "appId": "de.heimnetz.tuerklingel",
+  "appName": "Türklingel Alarm",
+  "webDir": "dist",
+  "android": {
+    "allowMixedContent": true
+  }
+}
+

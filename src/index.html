@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>Türklingel Alarm</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <!-- VOLLBILD ANRUF-ANSICHT (wenn es klingelt) -->
+  <section id="call-view" class="call-view hidden">
+    <div class="call-backdrop-pulse"></div>
+    <div class="call-content">
+      <div class="call-header">
+        <div class="call-badge">EINGEHENDER TÜR-ALARM</div>
+        <div class="call-avatar-wrap">
+          <div class="call-pulse-ring"></div>
+          <div class="call-pulse-ring delay"></div>
+          <div class="call-avatar">🔔</div>
+        </div>
+        <h1 id="call-title">Haustürklingel</h1>
+        <p id="call-message">Es klingelt an der Haustür!</p>
+        <span id="call-time" class="call-time">--:--:--</span>
+      </div>
+
+      <div id="call-camera-box" class="call-camera-box hidden">
+        <img id="call-camera-img" alt="Kamera Livebild" />
+      </div>
+
+      <div class="call-actions">
+        <button id="btn-open-door" class="btn-call btn-open-door hidden" type="button">
+          <span class="btn-icon">🚪</span>
+          <span>Tür öffnen</span>
+        </button>
+        <button id="btn-ack-alarm" class="btn-call btn-ack" type="button">
+          <span class="btn-icon">🔇</span>
+          <span>Stumm / Quittieren</span>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- DASHBOARD & EINSTELLUNGEN -->
+  <main id="dashboard-view" class="dashboard">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-icon">🔔</span>
+        <div>
+          <h1>Türklingel Alarm</h1>
+          <p class="subtitle">Schlanker ioBroker Smartphone-Empfänger</p>
+        </div>
+      </div>
+      <div id="connection-pill" class="pill pill-offline">
+        <span class="dot"></span>
+        <span id="connection-text">Getrennt</span>
+      </div>
+    </header>
+
+    <!-- Status & Wächter-Dienst -->
+    <section class="card">
+      <div class="card-row">
+        <div>
+          <h2>Hintergrund-Wächter</h2>
+          <p class="hint">Hält die Verbindung auch bei gesperrtem Handy aktiv.</p>
+        </div>
+        <label class="switch">
+          <input id="toggle-service" type="checkbox" checked />
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <div class="test-bar">
+        <button id="btn-test-now" class="btn btn-primary" type="button">🔔 Alarm jetzt testen</button>
+        <button id="btn-test-delayed" class="btn btn-secondary" type="button">⏱️ Test in 5 Sek. (Sperre testen)</button>
+      </div>
+      <p id="test-countdown" class="countdown-hint hidden"></p>
+    </section>
+
+    <!-- Verbindung zum ioBroker -->
+    <section class="card">
+      <h2>Verbindung zu ioBroker</h2>
+
+      <div class="mode-tabs">
+        <button id="tab-local" class="mode-tab active" type="button">🏠 Lokal / VPN (ioBroker)</button>
+        <button id="tab-ntfy" class="mode-tab" type="button">🌐 Überall (ntfy.sh)</button>
+      </div>
+
+      <div id="panel-local" class="panel">
+        <div class="form-grid">
+          <label class="field">
+            <span>ioBroker IP / Hostname</span>
+            <input id="input-host" type="text" placeholder="192.168.178.10" autocomplete="off" />
+          </label>
+          <label class="field small">
+            <span>Port</span>
+            <input id="input-port" type="number" value="8095" />
+          </label>
+        </div>
+        <label class="field">
+          <span>Türöffner-Button in Anruf-Ansicht anzeigen</span>
+          <div class="inline-check">
+            <input id="check-open-door" type="checkbox" />
+            <span>Aktivieren (sendet Befehl an <code>/open-door</code>)</span>
+          </div>
+        </label>
+      </div>
+
+      <div id="panel-ntfy" class="panel hidden">
+        <label class="field">
+          <span>Geheimes ntfy-Topic</span>
+          <input id="input-ntfy-topic" type="text" placeholder="klingel_privat_98a7bc6d5e" autocomplete="off" />
+        </label>
+        <p class="hint">Funktioniert ohne Portfreigabe und ohne VPN weltweit über <code>https://ntfy.sh/&lt;topic&gt;/sse</code>.</p>
+      </div>
+
+      <label class="field">
+        <span>Kamera-Snapshot URL (optional)</span>
+        <input id="input-camera-url" type="url" placeholder="http://192.168.178.50/snapshot.jpg" autocomplete="off" />
+      </label>
+
+      <div class="actions-row">
+        <button id="btn-save-config" class="btn btn-primary" type="button">💾 Speichern &amp; Verbinden</button>
+        <button id="btn-check-connection" class="btn btn-ghost" type="button">🔌 Verbindung prüfen</button>
+      </div>
+      <p id="save-feedback" class="feedback hidden"></p>
+    </section>
+
+    <!-- Android Berechtigungen -->
+    <section class="card">
+      <h2>Android System-Optimierung</h2>
+      <p class="hint">Damit der Alarm im Tiefschlaf und bei "Nicht stören" garantiert durchkommt:</p>
+      <div class="sys-buttons">
+        <button id="btn-perm-notif" class="btn btn-ghost" type="button">🔔 Benachrichtigungen erlauben</button>
+        <button id="btn-perm-battery" class="btn btn-ghost" type="button">🔋 Akku-Optimierung ausschalten</button>
+        <button id="btn-perm-dnd" class="btn btn-ghost" type="button">🔕 "Nicht stören"-Rechte öffnen</button>
+      </div>
+    </section>
+
+    <!-- Ereignis-Protokoll -->
+    <section class="card">
+      <div class="card-row">
+        <h2>Letzte Ereignisse</h2>
+        <button id="btn-clear-log" class="btn-link" type="button">Leeren</button>
+      </div>
+      <ul id="event-log" class="event-log">
+        <li class="log-empty">Noch keine Ereignisse aufgezeichnet.</li>
+      </ul>
+    </section>
+  </main>
+
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
+

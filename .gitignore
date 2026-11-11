@@ -1,0 +1,10 @@
+node_modules/
+dist/
+Ref/
+android/.gradle/
+android/app/build/
+android/build/
+android/capacitor-cordova-android-plugins/
+.DS_Store
+*.apk
+
