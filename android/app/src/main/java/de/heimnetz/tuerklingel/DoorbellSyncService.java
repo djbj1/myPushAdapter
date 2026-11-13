@@ -12,6 +12,7 @@ import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.NetworkRequest;
+import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.PowerManager;
@@ -35,6 +36,7 @@ public class DoorbellSyncService extends Service {
     private volatile boolean isRunning = false;
     private volatile HttpURLConnection activeConn;
     private ConnectivityManager.NetworkCallback networkCallback;
+    private WifiManager.WifiLock wifiLock;
 
     @Override
     public void onCreate() {
@@ -47,27 +49,75 @@ public class DoorbellSyncService extends Service {
         try {
             ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
             if (cm != null) {
-                NetworkRequest req = new NetworkRequest.Builder()
-                    .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                    .build();
                 networkCallback = new ConnectivityManager.NetworkCallback() {
                     @Override
                     public void onAvailable(Network network) {
-                        Log.i(TAG, "Network became available/switched. Reconnecting SSE immediately...");
+                        boolean isWifi = false;
+                        try {
+                            NetworkCapabilities caps = cm.getNetworkCapabilities(network);
+                            isWifi = caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI);
+                        } catch (Exception ignored) {}
+
+                        if (isWifi) {
+                            Log.i(TAG, "Heim-WLAN verbunden! Starte sofortige SSE-Wiederverbindung...");
+                            acquireWifiLock();
+                        } else {
+                            Log.i(TAG, "Mobilfunk aktiv. Gehe in Energiespar-Wartemodus...");
+                            releaseWifiLock();
+                        }
                         forceReconnect();
                     }
 
                     @Override
                     public void onLost(Network network) {
-                        Log.i(TAG, "Network lost.");
+                        Log.i(TAG, "Netzwerk getrennt.");
+                        releaseWifiLock();
                         forceReconnect();
                     }
                 };
-                cm.registerNetworkCallback(req, networkCallback);
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    cm.registerDefaultNetworkCallback(networkCallback);
+                } else {
+                    NetworkRequest req = new NetworkRequest.Builder()
+                        .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                        .build();
+                    cm.registerNetworkCallback(req, networkCallback);
+                }
             }
         } catch (Exception e) {
             Log.w(TAG, "Failed to register network callback: " + e.getMessage());
         }
+    }
+
+    private void acquireWifiLock() {
+        try {
+            if (wifiLock == null) {
+                WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+                if (wm != null) {
+                    int mode = (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+                        ? WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+                        : WifiManager.WIFI_MODE_FULL_HIGH_PERF;
+                    wifiLock = wm.createWifiLock(mode, "tuerklingel:sync_wifi_lock");
+                    wifiLock.setReferenceCounted(false);
+                }
+            }
+            if (wifiLock != null && !wifiLock.isHeld()) {
+                wifiLock.acquire();
+                Log.d(TAG, "WifiLock aktiv (verhindert WLAN-Einschlafen zuhause).");
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "WifiLock error: " + e.getMessage());
+        }
+    }
+
+    private void releaseWifiLock() {
+        try {
+            if (wifiLock != null && wifiLock.isHeld()) {
+                wifiLock.release();
+                Log.d(TAG, "WifiLock freigegeben (schont Akku außer Haus).");
+            }
+        } catch (Exception ignored) {}
     }
 
     private void unregisterNetworkCallback() {
@@ -86,11 +136,12 @@ public class DoorbellSyncService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (!DoorbellConfig.isServiceEnabled(getApplicationContext())) {
             DoorbellConfig.setConnectionState("disconnected");
+            releaseWifiLock();
             stopSelf();
             return START_NOT_STICKY;
         }
 
-        Notification notif = buildForegroundNotification();
+        Notification notif = buildForegroundNotification("Wartet im Hintergrund auf Klingelsignale");
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             try {
                 startForeground(NOTIFICATION_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
@@ -131,6 +182,7 @@ public class DoorbellSyncService extends Service {
     public void onDestroy() {
         isRunning = false;
         unregisterNetworkCallback();
+        releaseWifiLock();
         forceReconnect();
         DoorbellConfig.setConnectionState("disconnected");
         super.onDestroy();
@@ -158,7 +210,16 @@ public class DoorbellSyncService extends Service {
         }
     }
 
-    private Notification buildForegroundNotification() {
+    private void updateNotification(String statusText) {
+        try {
+            NotificationManager nm = getSystemService(NotificationManager.class);
+            if (nm != null) {
+                nm.notify(NOTIFICATION_ID, buildForegroundNotification(statusText));
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private Notification buildForegroundNotification(String statusText) {
         Intent notificationIntent = new Intent(this, MainActivity.class);
         int flags = PendingIntent.FLAG_UPDATE_CURRENT;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -167,8 +228,8 @@ public class DoorbellSyncService extends Service {
         PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent, flags);
 
         return new NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Türklingel-Wächter aktiv")
-            .setContentText("Wartet im Hintergrund auf Klingelsignale")
+            .setContentTitle("Türklingel-Wächter")
+            .setContentText(statusText != null ? statusText : "Wartet auf Klingelsignale")
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
@@ -190,6 +251,7 @@ public class DoorbellSyncService extends Service {
 
             try {
                 DoorbellConfig.setConnectionState("connecting");
+                updateNotification("🟡 Verbinde mit ioBroker...");
                 connectEventStream(sseUrl.trim());
                 backoffMs = 3000; // Reset nach erfolgreicher Verbindung
             } catch (Exception e) {
@@ -197,6 +259,8 @@ public class DoorbellSyncService extends Service {
             }
 
             DoorbellConfig.setConnectionState("disconnected");
+            releaseWifiLock();
+            updateNotification("⚪ Außer Haus (Wartet auf Heim-WLAN)");
             if (isRunning) {
                 sleepQuietly(backoffMs);
                 // Sanfter Backoff unterwegs, wird durch NetworkCallback sofort unterbrochen
@@ -224,6 +288,8 @@ public class DoorbellSyncService extends Service {
             }
 
             DoorbellConfig.setConnectionState("connected");
+            acquireWifiLock();
+            updateNotification("🟢 Zuhause verbunden mit ioBroker");
             reader = new BufferedReader(new InputStreamReader(conn.getInputStream()));
 
             String line;
