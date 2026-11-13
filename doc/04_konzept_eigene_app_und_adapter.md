@@ -15,14 +15,21 @@ Fertige Push-Apps zeigen nur Text und Buttons. Eine eigene App bietet zusätzlic
 
 ## 2. System-Komponenten
 
-```mermaid
-flowchart TD
-    A[Klingel-Sensor / Taster] -->|Signal| B[ioBroker Adapter: myPushAdapter]
-    B -->|1. FCM v1 Data-Push| C[Google Firebase FCM Service]
-    C -->|2. High-Priority Wakeup| D[Android App: DoorbellReceiver]
-    D -->|3. Startet Service| E[AlarmAudioService: USAGE_ALARM Looping]
-    D -->|4. FullScreenIntent| F[DoorbellCallActivity: Vollbild-Anruf]
-    F -->|5. Tipp auf 'Tür öffnen'| B
+```text
+[Klingel-Sensor / Taster]
+           │ Signal
+           ▼
+[ioBroker Adapter: myPushAdapter] ◄──── 5. Tipp auf "Tür öffnen" ─────┐
+           │                                                          │
+           │ 1. FCM v1 Data-Push                                      │
+           ▼                                                          │
+[Google Firebase FCM Service]                                         │
+           │                                                          │
+           │ 2. High-Priority Wakeup                                  │
+           ▼                                                          │
+[Android App: DoorbellReceiver]                                       │
+           ├── 3. Startet Service ──► [AlarmAudioService: USAGE_ALARM]│
+           └── 4. FullScreenIntent ─► [DoorbellCallActivity: Vollbild]┘
 ```
 
 ---

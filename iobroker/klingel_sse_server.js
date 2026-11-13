@@ -6,17 +6,17 @@ const http = require("http");
 const https = require("https");
 
 // 1. KONFIGURATION
-const SENSOR_ID          = "deconz.0.Sensors.12.button"; // <- DEIN Klingel-Datenpunkt
-const DOOR_OPEN_ID       = "";                           // Optional: z.B. "hm-rpc.0.XYZ.STATE" für Türöffner
-const SERVER_PORT        = 8095;                         // Port für deine Türklingel-App
-const COOLDOWN_SEK       = 15;                           // Schutz gegen Mehrfachdrücken
+const SENSOR_ID = "shelly.0.SHSW-1#E8DB84D72A0E#1.Relay0.Input";  // "0_userdata.0.Klingel.Taste"; // <- DEIN Klingel-Datenpunkt
+const DOOR_OPEN_ID = "";                           // Optional: z.B. "hm-rpc.0.XYZ.STATE" für Türöffner
+const SERVER_PORT = 8095;                         // Port für deine Türklingel-App
+const COOLDOWN_SEK = 15;                           // Schutz gegen Mehrfachdrücken
 
 // Optional für Empfang unterwegs (4G/5G ohne VPN):
 // Trage hier dasselbe geheime Topic wie in der App unter "Überall (ntfy.sh)" ein.
-const NTFY_TOPIC         = ""; // z.B. "klingel_privat_98a7bc6d5e"
+const NTFY_TOPIC = ""; // z.B. "klingel_privat_98a7bc6d5e"
 
 // Optional: Kamera Snapshot URL (wird an App übermittelt)
-const KAMERA_BILD_URL    = ""; // z.B. "http://192.168.178.50/snapshot.jpg"
+const KAMERA_BILD_URL = ""; // z.B. "http://192.168.178.50/snapshot.jpg"
 
 // =========================================================================
 // INTERNE LOGIK (ab hier nichts mehr ändern)
@@ -144,6 +144,21 @@ const pingInterval = setInterval(() => {
     }
 }, 25000);
 
+let isStopping = false;
+
+server.on("error", (err) => {
+    if (err.code === "EADDRINUSE" && !isStopping) {
+        log(`[Klingel-SSE] Port ${SERVER_PORT} noch kurz belegt, neuer Versuch in 1,5s...`, "warn");
+        setTimeout(() => {
+            if (!isStopping) {
+                server.listen(SERVER_PORT, "0.0.0.0");
+            }
+        }, 1500);
+    } else {
+        log(`[Klingel-SSE] Server-Fehler: ${err.message}`, "error");
+    }
+});
+
 server.listen(SERVER_PORT, "0.0.0.0", () => {
     log(`[Klingel-SSE] Server gestartet auf Port ${SERVER_PORT}`, "info");
 });
@@ -157,7 +172,12 @@ on({ id: SENSOR_ID, change: "any", val: true }, () => {
     }
     lastTrigger = now;
 
-    log(`[Klingel-SSE] Klingel betätigt! Sende Alarm an ${clients.size} Smartphones...`, "info");
+    if (clients.size === 0) {
+        log("[Klingel-SSE] Klingel betätigt, aber 0 Smartphones lokal verbunden!", "warn");
+    } else {
+        log(`[Klingel-SSE] Klingel betätigt! Sende Alarm an ${clients.size} Smartphone(s)...`, "info");
+    }
+
     broadcastEvent("doorbell_ring", {
         title: "Haustuerklingel",
         message: "Es klingelt an der Haustuer!",
@@ -166,11 +186,22 @@ on({ id: SENSOR_ID, change: "any", val: true }, () => {
     sendNtfyOptional("Haustuerklingel", "Es klingelt an der Haustuer!");
 });
 
-// Sauber beenden beim Skript-Stopp in ioBroker
-onStop(() => {
-    clearInterval(pingInterval);
-    for (const res of clients) {
-        try { res.end(); } catch (e) {}
+    // Sauber beenden beim Skript-Stopp / Speichern in ioBroker
+    onStop((callback) => {
+        isStopping = true;
+        clearInterval(pingInterval);
+        for (const res of clients) {
+            try {
+                res.destroy();
+            } catch (e) { }
+        }
+    clients.clear();
+
+    if (typeof server.closeAllConnections === "function") {
+        server.closeAllConnections();
     }
-    server.close();
-}, 1000);
+
+    server.close(() => {
+        if (typeof callback === "function") callback();
+    });
+}, 2000);

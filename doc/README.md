@@ -22,6 +22,7 @@ Im Gegensatz zu Standard-Messengern (WhatsApp, Telegram):
 | **[03_android_einrichtung.md](file:///c:/Programmierung/CurrentProjects/node.js/myPushAdapter/doc/03_android_einrichtung.md)** | Smartphone-Konfiguration: ntfy DND-Ausnahmen, Akku-Optimierung ausschalten (Samsung, Xiaomi, Pixel) gegen Push-Verzögerungen. |
 | **[04_konzept_eigene_app_und_adapter.md](file:///c:/Programmierung/CurrentProjects/node.js/myPushAdapter/doc/04_konzept_eigene_app_und_adapter.md)** | Entwickler-Konzept für eine komplett eigenständige Android-App (Kotlin) + ioBroker-Adapter. |
 | **[05_capacitor_architektur_und_umsetzung.md](file:///c:/Programmierung/CurrentProjects/node.js/myPushAdapter/doc/05_capacitor_architektur_und_umsetzung.md)** | **Capacitor + Node.js Leitfaden:** Eigene Web-App (HTML/CSS/JS) als Android-App mit Vollbild-Aufwecken, Dauerton & Türöffner-Button (0 € via FCM). |
+| **[06_smartphone_anbindung_sse.md](file:///c:/Programmierung/CurrentProjects/node.js/myPushAdapter/doc/06_smartphone_anbindung_sse.md)** | **Detaillierte Erklärung der Smartphone-Anbindung:** Wie SSE, 25s-Heartbeat, Reconnect, DND-Alarm, `/ack` & `/open-door` zwischen App und ioBroker zusammenspielen. |
 
 ---
 
