@@ -8,6 +8,10 @@ import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
+import android.net.NetworkRequest;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.PowerManager;
@@ -30,11 +34,52 @@ public class DoorbellSyncService extends Service {
     private Thread syncThread;
     private volatile boolean isRunning = false;
     private volatile HttpURLConnection activeConn;
+    private ConnectivityManager.NetworkCallback networkCallback;
 
     @Override
     public void onCreate() {
         super.onCreate();
         createNotificationChannel();
+        registerNetworkCallback();
+    }
+
+    private void registerNetworkCallback() {
+        try {
+            ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm != null) {
+                NetworkRequest req = new NetworkRequest.Builder()
+                    .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    .build();
+                networkCallback = new ConnectivityManager.NetworkCallback() {
+                    @Override
+                    public void onAvailable(Network network) {
+                        Log.i(TAG, "Network became available/switched. Reconnecting SSE immediately...");
+                        forceReconnect();
+                    }
+
+                    @Override
+                    public void onLost(Network network) {
+                        Log.i(TAG, "Network lost.");
+                        forceReconnect();
+                    }
+                };
+                cm.registerNetworkCallback(req, networkCallback);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to register network callback: " + e.getMessage());
+        }
+    }
+
+    private void unregisterNetworkCallback() {
+        try {
+            if (networkCallback != null) {
+                ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+                if (cm != null) {
+                    cm.unregisterNetworkCallback(networkCallback);
+                }
+                networkCallback = null;
+            }
+        } catch (Exception ignored) {}
     }
 
     @Override
@@ -76,16 +121,17 @@ public class DoorbellSyncService extends Service {
                     activeConn.disconnect();
                 }
             } catch (Exception ignored) {}
+            if (syncThread != null) {
+                syncThread.interrupt();
+            }
         }).start();
     }
 
     @Override
     public void onDestroy() {
         isRunning = false;
+        unregisterNetworkCallback();
         forceReconnect();
-        if (syncThread != null) {
-            syncThread.interrupt();
-        }
         DoorbellConfig.setConnectionState("disconnected");
         super.onDestroy();
     }
@@ -132,6 +178,7 @@ public class DoorbellSyncService extends Service {
 
     private void runSyncLoop() {
         Log.i(TAG, "Doorbell SSE sync loop started.");
+        long backoffMs = 3000;
 
         while (isRunning) {
             String sseUrl = DoorbellConfig.getSseUrl(getApplicationContext());
@@ -144,13 +191,16 @@ public class DoorbellSyncService extends Service {
             try {
                 DoorbellConfig.setConnectionState("connecting");
                 connectEventStream(sseUrl.trim());
+                backoffMs = 3000; // Reset nach erfolgreicher Verbindung
             } catch (Exception e) {
                 Log.w(TAG, "SSE connection error: " + e.getMessage());
             }
 
             DoorbellConfig.setConnectionState("disconnected");
             if (isRunning) {
-                sleepQuietly(4000);
+                sleepQuietly(backoffMs);
+                // Sanfter Backoff unterwegs, wird durch NetworkCallback sofort unterbrochen
+                backoffMs = Math.min(backoffMs + 3000, 15000);
             }
         }
     }
@@ -165,8 +215,8 @@ public class DoorbellSyncService extends Service {
             conn.setRequestMethod("GET");
             conn.setRequestProperty("Accept", "text/event-stream");
             conn.setRequestProperty("Cache-Control", "no-cache");
-            conn.setConnectTimeout(10000);
-            conn.setReadTimeout(90000); // Erkennt tote Verbindungen durch Heartbeat-Ausfall
+            conn.setConnectTimeout(8000);
+            conn.setReadTimeout(50000); // 50s (Heartbeat alle 25s reicht völlig)
 
             if (conn.getResponseCode() != 200) {
                 Log.w(TAG, "Unexpected HTTP code from SSE: " + conn.getResponseCode());
